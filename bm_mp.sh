@@ -1,37 +1,88 @@
 #!/bin/bash
-#$ -cwd
+
 #$ -j y
 #$ -l m_mem_free=5G
-
 #$ -pe threads 16
-### MAKE A NEW DIRECTORY IN 'Bismark_Run' that is called 'log'
-#$ -o /sonas-hs/lippman/hpc/data/Methylation_project/MicroTom-fruit-Epigenomics/log
-#$ -t 1-2
+
+### This script can be executed on mass via a parallel qsub and ParameterFile or one sample at a time by reading in appropriate arguments. Required are 'SampleName' 'read1' 'read2' 'ProjectFilesDirectory' 'BM_bisulfitegenome' and 'MP_indchr'
+
+### Define default values that we can
+TrimThreads=1
+ILLUMINACLIP=${trimmomatic/trimmomatic-0.32.jar/adapters/TruSeq3-PE-2.fa}:2:30:10
+LEADING=3
+TRAILING=3
+MINLEN=36
+SLIDINGWINDOW=4:15
+BM_multicore=2
+BM_seedmm=1
+BM_score_min="L,0,-0.3"
+BM_maxinsert=1500
+BM_directionality="--non_directional"
+#BM_bisulfitegenome= ### Required
+#MP_indchr= ### Required
+MP_mindepth=10
+MP_hmr_itr=15
+MP_pmd_itr=15
+MP_hypermr_itr=15
 
 # define variables with various info from the ParameterFile...
-Parameters=$1
-#Parameters=$(sed -n -e "$SGE_TASK_ID p" ParameterFile_Full) # ParameterFile is a text file in working directory that is space/tab separated for various run variables. You can change read names, output directories, genomes, etc with this.
+
+if [ $# > 0 ] ; then
+        if [[ ! $@ =~ = ]] ; then
+                echo -e 'usage: ./test.sh -arg1=X -arg2=Y etc\n\tMust use equal (=) signs in arguments'
+                exit
+        fi
+fi
+echo $@
+
+for i in "$@"; do
+	case $i in
+		--TrimThreads=*); TrimThreads="${i#*=}"; shift # past argument=value
+	;;
+		--ILLUMINACLIP=*); ILLUMINACLIP="${i#*=}"; shift # past argument=value
+	;;
+		--LEADING=*); LEADING="${i#*=}"; shift # past argument=value
+	;;
+		--TRAILING=*); TRAILING="${i#*=}"; shift # past argument=value
+	;;
+		--MINLEN=*); MINLEN="${i#*=}" ; shift # past argument=value
+	;;
+		--SLIDINGWINDOW=*); SLIDINGWINDOW="${i#*=}" ; shift # past argument=value
+	;;
+		--BM_multicore=*); BM_multicore="${i#*=}" ; shift # past argument=value
+	;;
+		--BM_seedmm=*); BM_seedmm="${i#*=}" ; shift # past argument=value
+	;;
+		--BM_score_min=*); BM_score_min="${i#*=}" ; shift # past argument=value
+	;;
+		--BM_maxinsert=*); BM_maxinsert="${i#*=}" ; shift # past argument=value
+	;;
+		--BM_directionality=*); BM_directionality="${i#*=}"; if [[ ! $BM_directionality ~ ^- ]] ;then echo -e "BM_directionality should be in format of --directional --non-directional. Add head --"; exit ; fi ; shift # past argument=value
+	;;
+		--BM_bisulfitegenome=*); BM_bisulfitegenome="${i#*=}"; shift 
+	;;
+		--MP_indchr=*); MP_indchr="${i#*=}"; shift
+	;;
+		--MP_mindepth=*); MP_mindepth="${i#*=}" ; shift
+	;;
+		--MP_hmr_itr=*); MP_hmr_itr="${i#*=}" ; shift
+	;;
+		--MP_pmd_itr=*); MP_pmd_itr="${i#*=}" ; shift
+	;;
+		--MP_hypermr_itr=*); MP_hypermr_itr="${i#*=}" ; shift
+	;;
+		--default)
+		DEFAULT=YES
+		shift # past argument with no value
+	;;
+	esac
+done
+
 SampleName=$( echo "$Parameters" | awk '{print $1}' ) #The first parameter in the file, indicating the Library Name.
 #read1/2 - assuming this is a PE seq, the following parameters indicating read1 and read2. will be in column 2 and 3 in the parameters file.
 read1=$( echo "$Parameters" | awk '{print $2}' ) # read1 file name 
 read2=$( echo "$Parameters" | awk '{print $3}' ) # read2 file name
 ProjectFilesDirectory=$( echo "$Parameters" | awk '{print $4}' ) #project directory path 
-TrimThreads=XXX
-ILLUMINACLIP=
-LEADING=
-TRAILING=
-MINLEN=
-BM_multicore=
-BM_seedmm=
-BM_score_min=
-BM_maxinsert=
-BM_directionality=
-BM_bisulfitegenome=
-MP_indchr=
-MP_mindepth=
-MP_hmr_itr=
-MP_pmd_itr=
-MP_hypermr_itr=
 
 #Define path for all executable.
 trimmomatic=$HOME/bin/Trimmomatic-0.32/trimmomatic-0.32.jar
