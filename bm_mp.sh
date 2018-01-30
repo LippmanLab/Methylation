@@ -158,11 +158,6 @@ for chr in $( grep ">" "${argarr["BM_bisulfitegenome"]}"/*.fa | sed 's/>//g' ) ;
 		exit
 	fi
 done
-exit
-if [ ! -d "${argarr["MP_indchr"]}" ] ; then
-	echo -ne ""${argarr["MP_indchr"]}" does not exist! Is this the correct path?\n\n"
-	exit
-fi
 
 exit
 
