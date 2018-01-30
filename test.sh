@@ -4,18 +4,11 @@ echo " ----- RUN STARTED AT  ----- " ; date; echo ""
 
 # define variables with various info from the ParameterFile...
 
-if [ $# > 0 ] ; then
-        if [[ ! $@ =~ = ]] ; then
-                echo -e 'usage: ./test.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr\n\tAll arguments must use key=value'
-                exit
-        fi
-fi
-#echo $@
-
 trimmomatic=$HOME/bin/Trimmomatic-0.32/trimmomatic-0.32.jar
 
 declare -A argarr
 ### Define default values that we can and put in argarr
+#SampleName= ### Required
 argarr["TrimThreads"]=1
 argarr["ILLUMINACLIP"]="${trimmomatic/trimmomatic-0.32.jar/adapters/TruSeq3-PE-2.fa}":2:30:10
 argarr["LEADING"]=3
@@ -42,6 +35,19 @@ for i in "$@"; do
 		argarr["SampleName"]="${i#*=}"
 		shift
 	;;
+		--read1=*)
+		argarr["read1"]="${i#*=}"
+		shift
+	;;
+		--read2=*)
+		argarr["read2"]="${i#*=}"
+		shift
+	;;
+		--ProjectFilesDirectory=*)
+		argarr["ProjectFilesDirectory"]="${i#*=}"
+		shift
+	;;
+
 		--TrimThreads=*)
 		 argarr["TrimThreads"]="${i#*=}"
 		 shift # past argument=value
@@ -117,11 +123,27 @@ for i in "$@"; do
 	esac
 done
 
+### Test that critical values are reasonable, throw error and exit if something looks off.
+
+if [ $# != 3 ] ; then
+	echo -e 'usage: ./test.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr --read1=/path/to/read1 --read2=/path/to/read2 --ProjectFilesDirectory=/path/to/project\n\t**All arguments must use key=value. Required input is SampleName, BM_bisulfitegenome, MP_indchr, read1, read2, and ProjectFilesDirectory\n'
+fi
+
+if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z "${argarr["MP_indchr"]}" || -z "${argarr["read1"]}" || -z "${argarr["read2"]}" || -z "${argarr["ProjectFilesDirectory"]}" ]] ; then
+	echo "One of the required options is not set! Please check the following have sane values:"
+	echo -ne "\tSampleName : "${argarr["SampleName"]}"\n"
+	echo -ne "\tBM_bisulfitegenome : "${argarr["BM_bisulfitegenome"]}"\n"
+	echo -ne "\tMP_indchr : "${argarr["MP_indchr"]}"\n"
+	echo -ne "\tread1 : "${argarr["read1"]}"\n"
+	echo -ne "\tread2 : "${argarr["read2"]}"\n"
+	echo -ne "\tProjectFilesDirectory : "${argarr["ProjectFilesDirectory"]}"\n"
+	exit
+fi
+
 # print out options to stout
 echo "Options set for the pipeline are:"
 for i in "${!argarr[@]}" ; do 
 	echo -e "\t" $i ":" "${argarr[$i]}"
 done
 
-### Test that critical values are reasonable, throw error and exit if something looks off.
 
