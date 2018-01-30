@@ -123,6 +123,10 @@ for i in "$@"; do
                 argarr["MP_hypermr_itr"]="${i#*=}"
                 shift
         ;;
+		--SRAacc=*)
+		argarr["SRAacc"]="${i#*=}"
+		shift
+	;;
                 --default)
                 DEFAULT=YES
                 shift # past argument with no value
@@ -133,18 +137,31 @@ done
 ### Test that critical values are reasonable, throw error and exit if something looks off.
 
 if [ $# != 3 ] ; then
-        echo -e 'usage: ./test.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr --read1=/path/to/read1 --read2=/path/to/read2 --ProjectFilesDirectory=/path/to/project\n\t**All arguments must use key=value. Required input is SampleName, BM_bisulfitegenome, MP_indchr, read1, read2, and ProjectFilesDirectory\n'
+        echo -e 'usage: ./test.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr ( --read1=/path/to/read1 --read2=/path/to/read2 ) | ( --SRAacc=SRR##### ) --ProjectFilesDirectory=/path/to/project\n\t**All arguments must use key=value. Required input is SampleName, BM_bisulfitegenome, MP_indchr, read1, read2, and ProjectFilesDirectory\n'
 fi
 
-if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z "${argarr["MP_indchr"]}" || -z "${argarr["read1"]}" || -z "${argarr["read2"]}" || -z "${argarr["ProjectFilesDirectory"]}" ]] ; then
+if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z "${argarr["MP_indchr"]}" || -z "${argarr["ProjectFilesDirectory"]}" ]] ; then
         echo "One of the required options is not set! Please check the following have sane values:"
         echo -ne "\tSampleName="${argarr["SampleName"]}"\n"
         echo -ne "\tBM_bisulfitegenome="${argarr["BM_bisulfitegenome"]}"\n"
         echo -ne "\tMP_indchr="${argarr["MP_indchr"]}"\n"
-        echo -ne "\tread1="${argarr["read1"]}"\n"
-        echo -ne "\tread2="${argarr["read2"]}"\n"
         echo -ne "\tProjectFilesDirectory="${argarr["ProjectFilesDirectory"]}"\n"
         exit
+fi
+
+if [[ -n "${argarr["read1"]}" && -n "${argarr["read2"]}" ]] ; then
+	rawreadprovided=1
+fi
+if [[ -n "${argarr["SRAacc"]}" ]] ; then
+	SRAaccprovided=1
+fi
+
+if [[ ( -z ${rawreadprovided} && -z ${SRAaccprovided} ) || ( -n $rawreadprovided && -n $SRAaccprovided ) ]]; then 
+	echo "Please provide paths to either paired reads (--read1=/path/to/read1 --read2=/path/to/read2) OR an SRA accession number (SRR1234567). Set values were:"
+        echo -ne "\tread1="${argarr["read1"]}"\n"
+        echo -ne "\tread2="${argarr["read2"]}"\n"
+	echo -ne "\tSRRacc="${argarr["SRAacc"]}"\n"
+	exit
 fi
 
 if [ ! -d "${argarr["BM_bisulfitegenome"]}"/Bisulfite_Genome/ ] ; then
@@ -159,15 +176,13 @@ for chr in $( grep ">" "${argarr["BM_bisulfitegenome"]}"/*.fa | sed 's/>//g' ) ;
 	fi
 done
 
-exit
-
 # print out options to stout
 echo "Options set for the pipeline are:"
 for i in "${!argarr[@]}" ; do
         echo -e "\t" $i ":" "${argarr[$i]}"
 done
 
-echo " ----- RUN STARTED AT  ----- " ; date
+echo " ----- TRANSFERRING READS FROM SRA/LOCAL ----- " ; date
 
 # fastq-dump files if needed
 ### NOTE ###
@@ -175,19 +190,21 @@ echo " ----- RUN STARTED AT  ----- " ; date
 # general construct is: ftp://ftp-trace.ncbi.nih.gov/sra/sra-instant/reads/ByRun/sra/{SRR|ERR|DRR}/<first 6 characters of accession>/<accession>/<accession>.sra
 # So for example for SRR4013317 your path is: ftp://ftp-trace.ncbi.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR401/SRR4013317/SRR4013317.sra
 ## Fetch the sra file...
-echo " -----  Starting wget for $SampleName  ----- " ; date
-echo -ne "checking SampleName syntax..." ; 
-if [[ "$SampleName" =~ ^SRR[0-9]{7}$ ]] ; then 
-	echo -ne "correct\n\n" ; 
-else 
-	echo -ne "incorrect SRA accession format, should be SRR[0-9]{7,}. Please check.\n\n"
-	exit 1
-fi
+
+if [[ $SRAaccprovided -eq 1 ]] ; then
+	echo -ne "checking SampleName syntax..." ; 
+	if [[ "$SampleName" =~ ^SRR[0-9]{7}$ ]] ; then 
+		echo -ne "correct\n\n" ; 
+	else 
+		echo -ne "incorrect SRA accession format, should be SRR[0-9]{7,}. Please check.\n\n"
+		exit 1
+	fi
 firstsix=${SampleName:0:6}
 wget -c -q -O "$TMPDIR"/"$SampleName".sra ftp://ftp-trace.ncbi.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/"$firstsix"/"$SampleName"/"$SampleName".sra
 ## Dump reads to split fastq.gz in the TMPDIR.
 echo " -----  fastq-dump fastq.gz files for $SampleName  ----- " ; date
-$HOME/bin/fastq-dump -O "$TMPDIR" --split-files --gzip "$TMPDIR"/"$SampleName".sra
+fastq-dump -O "$TMPDIR" --split-files --gzip "$TMPDIR"/"$SampleName".sra
+fi
 
 # Trim reads 
 ##### NOTE ##### If you prefetched the SRA into temp space and dumped there need to make it "$TMPDIR"/"$read1"
