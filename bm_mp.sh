@@ -136,7 +136,7 @@ if [ $# != 3 ] ; then
         echo -e 'usage: ./test.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr --read1=/path/to/read1 --read2=/path/to/read2 --ProjectFilesDirectory=/path/to/project\n\t**All arguments must use key=value. Required input is SampleName, BM_bisulfitegenome, MP_indchr, read1, read2, and ProjectFilesDirectory\n'
 fi
 
-if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z "${argarr["MP_indchr"]}" || -z "${argarr["read1"]}" || -z "${argarr["read2"]}" ]] ; then
+if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z "${argarr["MP_indchr"]}" || -z "${argarr["read1"]}" || -z "${argarr["read2"]}" || -z "${argarr["ProjectFilesDirectory"]}" ]] ; then
         echo "One of the required options is not set! Please check the following have sane values:"
         echo -ne "\tSampleName="${argarr["SampleName"]}"\n"
         echo -ne "\tBM_bisulfitegenome="${argarr["BM_bisulfitegenome"]}"\n"
@@ -146,6 +146,25 @@ if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z
         echo -ne "\tProjectFilesDirectory="${argarr["ProjectFilesDirectory"]}"\n"
         exit
 fi
+
+if [ ! -d "${argarr["BM_bisulfitegenome"]}"/Bisulfite_Genome/ ] ; then
+	echo -ne ""${argarr["BM_bisulfitegenome"]}" does not seem to be a bismark generated reference genome directory. Please check this directory!\n\n"
+	exit
+fi
+
+for chr in $( grep ">" "${argarr["BM_bisulfitegenome"]}"/*.fa | sed 's/>//g' ) ; do
+	if [ ! -e "${argarr["MP_indchr"]}"$chr.fa ] ; then
+		echo -ne "Did not find individual chromosome: "${argarr["MP_indchr"]}"$chr.fa. \n\tIs this the correct directory? Individual chromosome fasta files should be named CHROMOSOMEID.fa\n\n"
+		exit
+	fi
+done
+exit
+if [ ! -d "${argarr["MP_indchr"]}" ] ; then
+	echo -ne ""${argarr["MP_indchr"]}" does not exist! Is this the correct path?\n\n"
+	exit
+fi
+
+exit
 
 # print out options to stout
 echo "Options set for the pipeline are:"
