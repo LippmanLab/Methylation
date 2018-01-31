@@ -34,7 +34,7 @@ argarr["MP_hmr_itr"]=15
 argarr["MP_pmd_itr"]=15
 argarr["MP_hypermr_itr"]=15
 
-echo " ----- READING IN OPTIONS  ----- " ; date; echo ""
+echo "----- READING IN OPTIONS  ----- " ; date; echo ""
 
 for i in "$@"; do
         case $i in
@@ -137,7 +137,7 @@ done
 ### Test that critical values are reasonable, throw error and exit if something looks off.
 
 if [ $# != 3 ] ; then
-        echo -e 'usage: ./test.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr ( --read1=/path/to/read1 --read2=/path/to/read2 ) | ( --SRAacc=SRR##### ) --ProjectFilesDirectory=/path/to/project\n\t**All arguments must use key=value. Required input is SampleName, BM_bisulfitegenome, MP_indchr, read1, read2, and ProjectFilesDirectory\n'
+        echo -e 'usage: bm_mp.sh --SampleName=SAMPLENAME --BM_bisulfitegenome=/path/to/bs_genome --MP_indchr=/path/to/methpipe/indchr ( --read1=/path/to/read1 --read2=/path/to/read2 ) | ( --SRAacc=SRR##### ) --ProjectFilesDirectory=/path/to/project\n\t**All arguments must use key=value. Required input is SampleName, BM_bisulfitegenome, MP_indchr, read1, read2, and ProjectFilesDirectory\n'
 fi
 
 if [[ -z "${argarr["SampleName"]}" || -z "${argarr["BM_bisulfitegenome"]}" || -z "${argarr["MP_indchr"]}" || -z "${argarr["ProjectFilesDirectory"]}" ]] ; then
@@ -176,13 +176,18 @@ for chr in $( grep ">" "${argarr["BM_bisulfitegenome"]}"/*.fa | sed 's/>//g' ) ;
 	fi
 done
 
+if [[ -z "$TMPDIR" ]] ; then
+	TMPDIR="${argarr["ProjectFilesDirectory"]}"
+fi
+
 # print out options to stout
 echo "Options set for the pipeline are:"
 for i in "${!argarr[@]}" ; do
         echo -e "\t" $i ":" "${argarr[$i]}"
 done
+echo -e "\t" TMPDIR ":" "$TMPDIR" "\n"
 
-echo " ----- TRANSFERRING READS FROM SRA/LOCAL ----- " ; date
+echo "----- TRANSFERRING READS FROM SRA/LOCAL ----- " ; date
 
 # fastq-dump files if needed
 ### NOTE ###
@@ -192,82 +197,110 @@ echo " ----- TRANSFERRING READS FROM SRA/LOCAL ----- " ; date
 ## Fetch the sra file...
 
 if [[ $SRAaccprovided -eq 1 ]] ; then
-	echo -ne "checking SampleName syntax..." ; 
-	if [[ "$SampleName" =~ ^SRR[0-9]{7}$ ]] ; then 
-		echo -ne "correct\n\n" ; 
+	echo -ne "\nSRA accession provided ("${argarr["SRAacc"]}"). \n\tChecking SRRacc syntax..." ; 
+	if [[ "${argarr["SRAacc"]}" =~ ^SRR[0-9]{6,}$ ]] ; then 
+		echo -ne " correct!\n\n" ; 
 	else 
-		echo -ne "incorrect SRA accession format, should be SRR[0-9]{7,}. Please check.\n\n"
+		echo -ne "incorrect SRA accession format, should be SRR[0-9]{6,}. Please check.\n\n"
 		exit 1
 	fi
-firstsix=${SampleName:0:6}
-wget -c -q -O "$TMPDIR"/"$SampleName".sra ftp://ftp-trace.ncbi.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/"$firstsix"/"$SampleName"/"$SampleName".sra
-## Dump reads to split fastq.gz in the TMPDIR.
-echo " -----  fastq-dump fastq.gz files for $SampleName  ----- " ; date
-fastq-dump -O "$TMPDIR" --split-files --gzip "$TMPDIR"/"$SampleName".sra
+	firstsix=${argarr["SRAacc"]:0:6}
+	echo -ne "Starting wget for ${argarr["SRAacc"]}\n"; date
+	wget -c -q -O "$TMPDIR"/"${argarr["SRAacc"]}".sra ftp://ftp-trace.ncbi.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/"$firstsix"/"${argarr["SRAacc"]}"/"${argarr["SRAacc"]}".sra
+	echo -ne "wget complete\n" ; date
+	## Dump reads to split fastq.gz in the TMPDIR.
+	echo "running fastq-dump for ${argarr["SRAacc"]}" ; date
+	fastq-dump -O "$TMPDIR" --split-files --gzip "$TMPDIR"/"${argarr["SRAacc"]}".sra
+	read1="${argarr["SRAacc"]}"_1.fastq.gz
+	read2="${argarr["SRAacc"]}"_2.fastq.gz
+	rm -f "$TMPDIR"/"${argarr["SRAacc"]}".sra
+	echo -ne "fastq-dump completed for ${argarr["SRAacc"]}"\n; date
 fi
 
+if [[ $rawreadprovided -eq 1 ]] ; then
+	echo -ne "Copying raw reads to $TMPDIR\n" ; date
+	stripped_read1=${argarr["read1"]/*\/}
+	stripped_read2=${argarr["read2"]/*\/}
+	cp -v "${argarr["read1"]}" $TMPDIR/$stripped_read1
+	cp -v "${argarr["read2"]}" $TMPDIR/$stripped_read2
+	read1="$stripped_read1"
+	read2="$stripped_read2"
+	echo -ne "Copy complete\n"; date
+fi
+
+SampleName="${argarr["SampleName"]}"
+
+echo -ne "Read transfer from SRA/local complete\n" ; date
+ls -lh $TMPDIR/
+echo -ne "\n\n"
+
 # Trim reads 
-##### NOTE ##### If you prefetched the SRA into temp space and dumped there need to make it "$TMPDIR"/"$read1"
-java -jar "$trimmomatic" PE -threads "$TrimThreads "$TMPDIR"/"$read1" "$TMPDIR"/"$read2" "$TMPDIR"/"$SampleName"_P1.fastq "$TMPDIR"/"$SampleName"_U1.fastq "$TMPDIR"/"$SampleName"_P2.fastq "$TMPDIR"/"$SampleName"_U2.fastq ILLUMINACLIP:"$ILLUMINACLIP" LEADING:"$LEADING" TRAILING:"$TRAILING" MINLEN:"$MINLEN" TOPHRED33
+echo "----- TRIMMING READS FOR ${argarr["SampleName"]} ----- " ; date
+
+java -jar "$trimmomatic" PE -threads "${argarr["TrimThreads"]}" "$TMPDIR"/"$read1" "$TMPDIR"/"$read2" "$TMPDIR"/"${argarr["SampleName"]}"_P1.fastq "$TMPDIR"/"${argarr["SampleName"]}"_U1.fastq "$TMPDIR"/"${argarr["SampleName"]}"_P2.fastq "$TMPDIR"/"${argarr["SampleName"]}"_U2.fastq ILLUMINACLIP:"${argarr["ILLUMINACLIP"]}" LEADING:"${argarr["LEADING"]}" TRAILING:"${argarr["TRAILING"]}" SLIDINGWINDOW:"${argarr["SLIDINGWINDOW"]}" MINLEN:"${argarr["MINLEN"]}" TOPHRED33
 
 #Run fastqc on the trimmed files...
-echo " ----- Starting fastqc on the trimmed files ----- " ; date
+echo "Starting fastqc on trimmed files" ; date
 mkdir -p ./fastqc
-$HOME/bin/FastQC/fastqc -o ./fastqc "$TMPDIR"/*.fastq
+fastqc -o ./fastqc "$TMPDIR"/*.fastq
 
 #Run bismark on the files...
-echo " ----- Aligning reads with bismark ----- " ; date
-mkdir -pv "$ProjectFilesDirectory"
+echo "----- ALIGNING READS WITH BISMARK FOR ${argarr["SampleName"]} ----- " ; date
+mkdir -pv "${argarr["ProjectFilesDirectory"]}"
 ### NOTE ###
 # the multicore argument is misleading, as it launches X number of bismark instances, each of which launches 2 (directional) or 4 (non-directional) bowtie2 processes. So the real number of threads to request in the job should be
 # --multicore * 2|4 bowtie2 threads (dir|ndir) + --multicore (number of bismark instances launched) + 2 extra for random gzip, samtools needs.
 ### NOTE ###
-$HOME/bin/bismark_v0.18.0/bismark --multicore "$BM_multicore" -N "$BM_seedmm" --score_min "$BM_score_min" -q -X "$BM_maxinsert" "$BM_directionality" --temp_dir "$TMPDIR" -o  "$ProjectFilesDirectory" "$BM_bisulfitegenome" -1 "$TMPDIR"/"$SampleName"_P1.fastq -2 "$TMPDIR"/"$SampleName"_P2.fastq 
+bismark --multicore "${argarr["BM_multicore"]}" -N "${argarr["BM_seedmm"]}" --score_min "${argarr["BM_score_min"]}" -q -X "${argarr["BM_maxinsert"]}" "${argarr["BM_directionality"]}" --temp_dir "$TMPDIR" -o  "${argarr["ProjectFilesDirectory"]}" "${argarr["BM_bisulfitegenome"]}" -1 "$TMPDIR"/"${argarr["SampleName"]}"_P1.fastq -2 "$TMPDIR"/"${argarr["SampleName"]}"_P2.fastq 
 
 #methpipe!
 
 # first step converting the bam files to methpipe format
-echo " ----- Converting bam files to methpipe format with to-mr ----- " ; date
-to-mr -o "$TMPDIR"/"$SampleName".mr -m bismark "$ProjectFilesDirectory"/"$SampleName"_P1_bismark_bt2_pe.bam
+echo "----- STARTING METHPIPE PIPELINE FOR ${argarr["SampleName"]} ----- " ; date
+echo -ne "Converting to methpipe format using to-mr\n" ; date
+to-mr -o "$TMPDIR"/"${argarr["SampleName"]}".mr -m bismark "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_P1_bismark_bt2_pe.bam
+echo "Done converting to methpipe format using to-mr..."
 
 # Next step sort the reads before removing duplications
-echo " ----- Sorting the mr file with sort ----- " ; date
-LC_ALL=C sort -k 1,1 -k 2,2n -k 3,3n -k 6,6 -o "$TMPDIR"/"$SampleName"_sorted.mr "$TMPDIR"/"$SampleName".mr
+echo -ne "Sorting the mr file with sort\n" ; date
+LC_ALL=C sort -k 1,1 -k 2,2n -k 3,3n -k 6,6 -o "$TMPDIR"/"${argarr["SampleName"]}"_sorted.mr "$TMPDIR"/"${argarr["SampleName"]}".mr
+echo "Done sorting the mr file with sort..."
 
 # Next step remove duplicate reads
-echo " ----- Removing duplicates with duplicate-remover ----- " ; date
-duplicate-remover -S "$ProjectFilesDirectory"/"$SampleName"_dremove_stat.txt -o "$TMPDIR"/"$SampleName"_dremove.mr "$TMPDIR"/"$SampleName"_sorted.mr
+echo -ne "Removing duplicates with duplicate-remover\n" ; date
+duplicate-remover -S "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_dremove_stat.txt -o "$TMPDIR"/"${argarr["SampleName"]}"_dremove.mr "$TMPDIR"/"${argarr["SampleName"]}"_sorted.mr
+echo "Done with removing duplicates with duplicate-remover..."
 
 # Next step: Computing single-site methylation levels
-echo " ----- Counting methylation with methcounts ----- " ; date
-methcounts -c "$MP_indchr" -o "$ProjectFilesDirectory"/"$SampleName".meth  -v "$TMPDIR"/"$SampleName"_dremove.mr
+echo "Counting methylation with methcounts" ; date
+methcounts -c "${argarr["MP_indchr"]}" -o "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}".meth  -v "$TMPDIR"/"${argarr["SampleName"]}"_dremove.mr
+echo "Done counting methylation with methcounts..."
 
 # Next step estimation of the bisulfite conversion rate
-echo " ----- Calculating bisulfite conversion rate ----- " ; date
-bsrate -o "$ProjectFilesDirectory"/"$SampleName".bsrate -c "$MP_indchr" -v "$TMPDIR"/"$SampleName"_dremove.mr
+echo "Calculating bisulfite conversion rate" ; date
+bsrate -o "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}".bsrate -c "${argarr["MP_indchr"]}" -v "$TMPDIR"/"${argarr["SampleName"]}"_dremove.mr
 echo "Done calculating bisulfite conversion rate..."
 
 # Next Step: Filtering low coverage Cs - the methpipe group recommend at least coverage of X10, JS is checking for at least 5, i think we should aim for X8 coverage... 
-echo " ----- Filtering low coverage ----- " ; date
-awk -v mindepth="$MP_mindepth" -F "\t" '$6 >= mindepth  { print $0 }' "$ProjectFilesDirectory"/"$SampleName".meth > "$ProjectFilesDirectory"/"$SampleName"_cov.meth
+echo "Filtering low coverage" ; date
+awk -v mindepth="${argarr["MP_mindepth"]}" -F "\t" '$6 >= mindepth  { print $0 }' "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}".meth > "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_cov.meth
 echo "Done removing low coverage methylation..."
 
 # Next step: Finding HypoMethylated regions
-echo " ----- calculate hypomethylated regions ----- " ; date
-hmr -o "$ProjectFilesDirectory"/"$SampleName".hmr -i "$MP_hmr_itr" -v "$ProjectFilesDirectory"/"$SampleName"_cov.meth
+echo "Calculate hypomethylated regions" ; date
+hmr -o "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}".hmr -i "${argarr["MP_hmr_itr"]}" -v "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_cov.meth
 echo "Done calculating hypomethylated regions..."
 
 # Next step: Finding partial hypomethylated regions
-echo " ----- calculate partial hypomethylated regions ----- " ; date
-pmd  -o "$ProjectFilesDirectory"/"$SampleName".pmd -v -i "$MP_pmd_itr" "$ProjectFilesDirectory"/"$SampleName"_cov.meth
+echo "Calculate partial hypomethylated regions" ; date
+pmd  -o "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}".pmd -v -i "${argarr["MP_pmd_itr"]}" "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_cov.meth
 echo "Done calculating partial hypomethylated regions..."
 
 # The last step Finding hypermethylated regions
-echo " ----- Finding hypermr ----- " ; date
-hypermr  -o "$ProjectFilesDirectory"/"$SampleName"_cov.hypermr -i "$MP_hypermr_itr" -v "$ProjectFilesDirectory"/"$SampleName"_cov.meth
+echo "Finding hypermr" ; date
+hypermr  -o "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_cov.hypermr -i "${argarr["MP_hypermr_itr"]}" -v "${argarr["ProjectFilesDirectory"]}"/"${argarr["SampleName"]}"_cov.meth
 echo "Done calculating hypermethylated regions..."
 
-echo " ----- RUN ENDED AT  ----- " ; date
+echo "----- RUN COMPLETE ----- " ; date
 
-## In the next we can compare the methylation between two genomes and find DMR's. I think that should be done in a different file. 
-
+echo -ne "\nPlease continue methylation analysis by calculating differentially methylated regions (DMRs) between samples using XXX\n"

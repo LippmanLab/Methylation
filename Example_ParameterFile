@@ -1,0 +1,1 @@
+--SampleName=TEST1 --BM_bisulfitegenome=/sonas-hs/lippman/hpc/home/zlemmon/indexes/SL3.00_bismark/ --MP_indchr=/sonas-hs/lippman/hpc/home/zlemmon/indexes/SL3.0/SL3.0_chromosomes/ --SRAacc=SRR886280 --ProjectFilesDirectory=/sonas-hs/lippman/hpc/home/zlemmon/tmp/
